@@ -1,22 +1,24 @@
-// Package raft will eventually contain a from-scratch Raft consensus
-// implementation, built directly against the Raft paper (Ongaro &
-// Ousterhout, "In Search of an Understandable Consensus Algorithm").
+// Package raft is a from-scratch Raft consensus implementation, built
+// directly against the Raft paper (Ongaro & Ousterhout, "In Search of
+// an Understandable Consensus Algorithm").
 //
-// Nothing in this package does real consensus yet. What's here is the
-// scaffolding — the state a node needs to track, and the shape of the
-// operations it will perform — so that election.go and log replication
-// can be filled in incrementally without restructuring everything.
-//
-// Recommended build order (see docs/architecture.md):
-//  1. Leader election only, against internal/transport's fake network.
-//  2. Log replication (AppendEntries) with no persistence.
+// Build order (see docs/architecture.md):
+//  1. Leader election (this + election.go + timer.go), tested against
+//     internal/transport's FakeNetwork.
+//  2. Log replication (heartbeat.go currently only does the heartbeat
+//     half of AppendEntries - see its TODOs).
 //  3. Persist currentTerm/votedFor/log via internal/wal before
-//     acknowledging votes/entries — this is the most common place
-//     naive Raft implementations violate safety.
+//     acknowledging votes/entries - see the TODO in election.go. This
+//     is the most common place naive Raft implementations violate
+//     safety, so don't skip it.
 //  4. Commit index + apply loop into internal/kv.
 package raft
 
-import "sync"
+import (
+	"sync"
+
+	"hivemind/internal/transport"
+)
 
 // State is the role a Raft node currently believes it holds.
 type State string
@@ -40,8 +42,9 @@ type PeerID string
 type Node struct {
 	mu sync.Mutex
 
-	ID    PeerID
-	Peers []PeerID
+	ID      PeerID
+	Peers   []PeerID
+	Network transport.Network // how this node talks to its peers
 
 	// --- Persistent state (must survive restarts once wal is wired in) ---
 	CurrentTerm int
@@ -54,17 +57,26 @@ type Node struct {
 	LastApplied int
 
 	// --- Volatile state on leaders only (reinitialized after election) ---
-	// nextIndex/matchIndex per peer — populated once log replication
+	// nextIndex/matchIndex per peer - populated once log replication
 	// (phase 6.2) is implemented.
 	nextIndex  map[PeerID]int
 	matchIndex map[PeerID]int
+
+	// --- Election timer plumbing (see timer.go) ---
+	resetCh chan struct{} // signals "restart the election countdown"
+	stopCh  chan struct{} // signals "shut down all background goroutines"
 }
 
 // NewNode constructs a fresh Raft node starting as a Follower in term 0.
-func NewNode(id PeerID, peers []PeerID) *Node {
+// network is how this node will reach its peers - typically a
+// transport.FakeNetwork in tests, or a real RPC transport in
+// production. Call Start() after construction to begin participating
+// in elections.
+func NewNode(id PeerID, peers []PeerID, network transport.Network) *Node {
 	return &Node{
 		ID:          id,
 		Peers:       peers,
+		Network:     network,
 		CurrentTerm: 0,
 		VotedFor:    "",
 		Log:         NewLog(),
@@ -73,6 +85,8 @@ func NewNode(id PeerID, peers []PeerID) *Node {
 		LastApplied: 0,
 		nextIndex:   make(map[PeerID]int),
 		matchIndex:  make(map[PeerID]int),
+		resetCh:     make(chan struct{}, 1),
+		stopCh:      make(chan struct{}),
 	}
 }
 

@@ -26,7 +26,8 @@ type Network interface {
 	// Send delivers an RPC named method with payload args to peer id,
 	// and returns whatever handler is registered for that method on
 	// the receiving node.
-	Send(to string, method string, args any) (reply any, err error)
+	Send(from string, to string, method string, args any) (reply any, err error)
+	Register(nodeID string, method string, h Handler)
 }
 
 // Handler processes an incoming RPC on a given node.
@@ -72,14 +73,14 @@ func (f *FakeNetwork) Register(nodeID, method string, h Handler) {
 // once basic election + replication work correctly, so failure tests
 // can exercise "delayed but not lost" and "duplicated" message cases
 // too, not just outright drops.
-func (f *FakeNetwork) Send(to string, method string, args any) (any, error) {
+func (f *FakeNetwork) Send(from string, to string, method string, args any) (any, error) {
 	f.mu.Lock()
-	dropped := f.Drop[to]
+	dropped := f.Drop[to] || f.Drop[from] // partitioned nodes can neither send nor receive
 	handler, ok := f.handlers[to][method]
 	f.mu.Unlock()
 
 	if dropped {
-		return nil, fmt.Errorf("transport: message to %s dropped (simulated partition)", to)
+		return nil, fmt.Errorf("transport: message %s -> %s dropped (simulated partition)", from, to)
 	}
 	if !ok {
 		return nil, fmt.Errorf("transport: no handler for %s.%s", to, method)
