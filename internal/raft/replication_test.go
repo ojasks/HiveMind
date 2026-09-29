@@ -13,7 +13,7 @@ func TestReplication_ProposeReplicatesToAllNodes(t *testing.T) {
 
 	leader := waitForSingleLeader(t, nodes, 2*time.Second)
 
-	idx, _, ok := nodes[leader].Propose("PUT x 10")
+	idx, _, ok := nodes[leader].Propose(putCmd("x", "10"))
 	if !ok {
 		t.Fatalf("Propose on leader %s was rejected", leader)
 	}
@@ -24,7 +24,7 @@ func TestReplication_ProposeReplicatesToAllNodes(t *testing.T) {
 	waitFor(t, 2*time.Second, "all nodes to log and commit 'PUT x 10'", func() bool {
 		for _, n := range nodes {
 			cmds := logCommands(n)
-			if len(cmds) != 1 || cmds[0] != "PUT x 10" || n.Status().CommitIndex != 1 {
+			if len(cmds) != 1 || cmds[0] != putCmd("x", "10") || n.Status().CommitIndex != 1 {
 				return false
 			}
 		}
@@ -40,7 +40,7 @@ func TestReplication_FollowerRejectsPropose(t *testing.T) {
 	leader := waitForSingleLeader(t, nodes, 2*time.Second)
 	follower := followersOf(nodes, leader)[0]
 
-	if _, _, ok := nodes[follower].Propose("PUT x 10"); ok {
+	if _, _, ok := nodes[follower].Propose(putCmd("x", "10")); ok {
 		t.Fatalf("follower %s accepted a proposal", follower)
 	}
 }
@@ -58,9 +58,9 @@ func TestReplication_CommitsWithOneFollowerDownAndCatchesUp(t *testing.T) {
 
 	net.Partition(string(lagging))
 
-	for _, cmd := range []string{"PUT a 1", "PUT b 2"} {
+	for _, cmd := range []Command{putCmd("a", "1"), putCmd("b", "2")} {
 		if _, _, ok := nodes[leader].Propose(cmd); !ok {
-			t.Fatalf("Propose(%q) on leader %s was rejected", cmd, leader)
+			t.Fatalf("Propose(%+v) on leader %s was rejected", cmd, leader)
 		}
 	}
 
@@ -78,7 +78,7 @@ func TestReplication_CommitsWithOneFollowerDownAndCatchesUp(t *testing.T) {
 	// bring the lagging node up to date.
 	waitFor(t, 5*time.Second, "lagging follower to catch up", func() bool {
 		cmds := logCommands(nodes[lagging])
-		return len(cmds) == 2 && cmds[0] == "PUT a 1" && cmds[1] == "PUT b 2"
+		return len(cmds) == 2 && cmds[0] == putCmd("a", "1") && cmds[1] == putCmd("b", "2")
 	})
 }
 
@@ -93,7 +93,7 @@ func TestReplication_LeaderWithoutMajorityCannotCommit(t *testing.T) {
 		net.Partition(string(f))
 	}
 
-	if _, _, ok := nodes[leader].Propose("PUT x 1"); !ok {
+	if _, _, ok := nodes[leader].Propose(putCmd("x", "1")); !ok {
 		t.Fatalf("Propose on leader %s was rejected", leader)
 	}
 
@@ -120,12 +120,12 @@ func TestReplication_DivergentLogIsOverwrittenAfterHeal(t *testing.T) {
 	net.Partition(string(oldLeader))
 
 	// Still believing it is leader, the isolated node accepts a write.
-	if _, _, ok := nodes[oldLeader].Propose("STALE"); !ok {
+	if _, _, ok := nodes[oldLeader].Propose(putCmd("stale", "stale")); !ok {
 		t.Fatalf("isolated old leader %s rejected a proposal", oldLeader)
 	}
 
 	newLeader := waitForLeaderExcluding(t, nodes, oldLeader, 2*time.Second)
-	if _, _, ok := nodes[newLeader].Propose("FRESH"); !ok {
+	if _, _, ok := nodes[newLeader].Propose(putCmd("fresh", "fresh")); !ok {
 		t.Fatalf("Propose on new leader %s was rejected", newLeader)
 	}
 	waitFor(t, 2*time.Second, "new leader to commit FRESH", func() bool {
@@ -136,6 +136,6 @@ func TestReplication_DivergentLogIsOverwrittenAfterHeal(t *testing.T) {
 
 	waitFor(t, 5*time.Second, "old leader to step down and replace STALE with FRESH", func() bool {
 		cmds := logCommands(nodes[oldLeader])
-		return nodes[oldLeader].Status().State == Follower && len(cmds) == 1 && cmds[0] == "FRESH"
+		return nodes[oldLeader].Status().State == Follower && len(cmds) == 1 && cmds[0] == putCmd("fresh", "fresh")
 	})
 }

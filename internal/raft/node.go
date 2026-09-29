@@ -3,20 +3,26 @@
 // an Understandable Consensus Algorithm").
 //
 // Build order (see docs/architecture.md):
-//  1. Leader election (this + election.go + timer.go), tested against
-//     internal/transport's FakeNetwork.
-//  2. Log replication (heartbeat.go currently only does the heartbeat
-//     half of AppendEntries - see its TODOs).
-//  3. Persist currentTerm/votedFor/log via internal/wal before
+//  1. Leader election (election.go + timer.go), tested against
+//     internal/transport's FakeNetwork. DONE.
+//  2. Log replication: Propose, AppendEntries, nextIndex/matchIndex,
+//     majority-based commit index (replication.go, heartbeat.go).
+//     DONE.
+//  3. Apply loop: committed entries applied to internal/kv on every
+//     node (apply.go). DONE.
+//  4. Persist currentTerm/votedFor/log via internal/wal before
 //     acknowledging votes/entries - see the TODO in election.go. This
 //     is the most common place naive Raft implementations violate
-//     safety, so don't skip it.
-//  4. Commit index + apply loop into internal/kv.
+//     safety, so don't skip it. NOT DONE YET.
+//  5. server.Server routes Put/Delete through Propose instead of
+//     writing to kv/wal directly (see the TODO in server.go). NOT
+//     DONE YET.
 package raft
 
 import (
 	"sync"
 
+	"hivemind/internal/kv"
 	"hivemind/internal/transport"
 )
 
@@ -45,6 +51,13 @@ type Node struct {
 	ID      PeerID
 	Peers   []PeerID
 	Network transport.Network // how this node talks to its peers
+
+	// Store is where committed commands are applied (see apply.go). It
+	// is nil by default - set it directly (n.Store = someStore) before
+	// calling Start() if you want committed entries to actually reach
+	// a kv.Store. Consensus-only tests can leave it nil: the apply
+	// loop still advances LastApplied, it just has nowhere to write.
+	Store *kv.Store
 
 	// --- Persistent state (must survive restarts once wal is wired in) ---
 	CurrentTerm int

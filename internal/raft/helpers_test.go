@@ -62,14 +62,20 @@ func followersOf(nodes map[PeerID]*Node, leader PeerID) []PeerID {
 }
 
 // logCommands returns the commands in a node's log, in order.
-func logCommands(n *Node) []string {
+func logCommands(n *Node) []Command {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	var cmds []string
+	var cmds []Command
 	for i := 1; i <= n.Log.LastIndex(); i++ {
 		e, _ := n.Log.Get(i)
 		cmds = append(cmds, e.Command)
 	}
 	return cmds
+}
+
+// putCmd builds a simple OpPut command for tests that just need some
+// distinguishable, comparable payload - not a real KV scenario.
+func putCmd(key, value string) Command {
+	return Command{Op: OpPut, Key: key, Value: value}
 }

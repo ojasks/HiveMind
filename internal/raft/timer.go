@@ -24,7 +24,10 @@ const (
 )
 
 // Start registers this node's RPC handlers on its Network and launches
-// its election timer. Call this once per node after construction.
+// its background goroutines: the election timer and the apply loop
+// (see apply.go). Call this once per node after construction, and
+// after setting n.Store if you want committed entries applied to a
+// kv.Store.
 func (n *Node) Start() {
 	n.Network.Register(string(n.ID), "Raft.RequestVote", func(args any) (any, error) {
 		return n.HandleRequestVote(args.(RequestVoteArgs)), nil
@@ -34,6 +37,7 @@ func (n *Node) Start() {
 	})
 
 	go n.runElectionTimer()
+	go n.runApplyLoop()
 }
 
 // Stop shuts down this node's background goroutines (election timer,

@@ -13,7 +13,7 @@ package raft
 // leader has accepted it. It becomes committed (CommitIndex >= index)
 // once a majority of nodes store it, which happens asynchronously via
 // the heartbeat loop.
-func (n *Node) Propose(command string) (index int, term int, isLeader bool) {
+func (n *Node) Propose(command Command) (index int, term int, isLeader bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 

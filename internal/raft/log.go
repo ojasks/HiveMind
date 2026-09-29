@@ -3,15 +3,10 @@ package raft
 // LogEntry is a single entry in the replicated Raft log. This mirrors
 // Figure 2 of the Raft paper: every entry carries the term in which it
 // was created by the leader, plus the command itself.
-//
-// TODO(phase 6): Command is currently an opaque string placeholder.
-// Decide on a real command encoding (likely a small struct mirroring
-// wal.Entry: {Op, Key, Value}, gob- or JSON-encoded) once log
-// replication is implemented.
 type LogEntry struct {
-	Index   int    // position in the log, 1-indexed
-	Term    int    // term when entry was created by the leader
-	Command string // TODO: replace with a real typed command
+	Index   int     // position in the log, 1-indexed
+	Term    int     // term when entry was created by the leader
+	Command Command // the write operation this entry represents
 }
 
 // Log is the in-memory representation of a node's replicated log.
@@ -52,7 +47,7 @@ func (l *Log) LastTerm() int {
 // conflicts (truncate the suffix of the log when an existing entry
 // conflicts with a new one at the same index) per the Raft log matching
 // property. This method intentionally does not do that yet.
-func (l *Log) Append(term int, command string) LogEntry {
+func (l *Log) Append(term int, command Command) LogEntry {
 	entry := LogEntry{
 		Index:   l.LastIndex() + 1,
 		Term:    term,
