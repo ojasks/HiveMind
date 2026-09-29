@@ -69,3 +69,48 @@ func (l *Log) Get(index int) (LogEntry, bool) {
 	}
 	return l.entries[index], true
 }
+
+// TermAt returns the term of the entry at index. Index 0 is the
+// sentinel "position before the first entry" and has term 0, which is
+// what lets the very first AppendEntries (PrevLogIndex 0) pass the
+// log-matching check. ok is false if index is negative or past the end.
+func (l *Log) TermAt(index int) (term int, ok bool) {
+	if index < 0 || index > l.LastIndex() {
+		return 0, false
+	}
+	return l.entries[index].Term, true
+}
+
+// TruncateFrom deletes the entry at index and everything after it. Used
+// by a follower when a leader's entry conflicts with what it already has.
+func (l *Log) TruncateFrom(index int) {
+	if index < 1 || index > l.LastIndex() {
+		return
+	}
+	l.entries = l.entries[:index]
+}
+
+// AppendAll appends entries received from a leader to the end of the
+// log. Each entry's Index is re-stamped from its actual position so the
+// invariant "entries[i].Index == i" can never be broken by a bad RPC.
+func (l *Log) AppendAll(entries []LogEntry) {
+	for _, e := range entries {
+		e.Index = len(l.entries)
+		l.entries = append(l.entries, e)
+	}
+}
+
+// Slice returns a copy of the entries from index `from` through the
+// end of the log (nil if there are none). Used by the leader to build
+// the Entries field of an AppendEntries RPC.
+func (l *Log) Slice(from int) []LogEntry {
+	if from < 1 {
+		from = 1
+	}
+	if from > l.LastIndex() {
+		return nil
+	}
+	out := make([]LogEntry, l.LastIndex()-from+1)
+	copy(out, l.entries[from:])
+	return out
+}

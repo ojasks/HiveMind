@@ -126,3 +126,35 @@ func TestLeaderElection_ReelectsAfterPartition(t *testing.T) {
 		}
 	}
 }
+
+// TestLeaderElection_OldLeaderStepsDownAfterHeal covers the other half
+// of a partition: once the network heals, the old leader (which spent
+// the partition still believing it was leader) must discover the newer
+// term, step down, and leave the cluster with exactly one leader.
+func TestLeaderElection_OldLeaderStepsDownAfterHeal(t *testing.T) {
+	ids := []PeerID{"node1", "node2", "node3"}
+	net, nodes := newTestCluster(t, ids)
+
+	oldLeader := waitForSingleLeader(t, nodes, 2*time.Second)
+	net.Partition(string(oldLeader))
+
+	newLeader := waitForLeaderExcluding(t, nodes, oldLeader, 2*time.Second)
+	newTerm := nodes[newLeader].Status().CurrentTerm
+	t.Logf("old leader %s partitioned; new leader %s in term %d", oldLeader, newLeader, newTerm)
+
+	// Cut off from everyone, the old leader cannot know it was replaced.
+	if st := nodes[oldLeader].Status(); st.State != Leader {
+		t.Fatalf("partitioned old leader should still believe it is Leader, got %s", st.State)
+	}
+
+	net.Heal(string(oldLeader))
+
+	waitFor(t, 2*time.Second, "old leader to step down and adopt the new term", func() bool {
+		st := nodes[oldLeader].Status()
+		return st.State == Follower && st.CurrentTerm >= newTerm
+	})
+
+	if ls := leaders(nodes); len(ls) != 1 {
+		t.Fatalf("expected exactly one leader after heal, got %v", ls)
+	}
+}

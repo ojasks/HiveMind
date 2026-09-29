@@ -164,8 +164,16 @@ func (n *Node) StartElection() {
 // heartbeat loop. Caller must already hold n.mu.
 func (n *Node) becomeLeaderLocked() {
 	n.State = Leader
-	// TODO(phase 6.2): initialize nextIndex[peer] = len(log)+1 and
-	// matchIndex[peer] = 0 for every peer here, per Raft paper Figure
-	// 2, once log replication (not just heartbeats) is implemented.
+
+	// Per Raft paper Figure 2, a new leader optimistically assumes
+	// every follower is up to date (nextIndex = one past its own last
+	// entry) and knows nothing is confirmed yet (matchIndex = 0). If a
+	// follower is actually behind, its rejection makes replicateTo
+	// walk nextIndex backwards until the logs line up.
+	for _, p := range n.Peers {
+		n.nextIndex[p] = n.Log.LastIndex() + 1
+		n.matchIndex[p] = 0
+	}
+
 	go n.runHeartbeats(n.CurrentTerm)
 }
