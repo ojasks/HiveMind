@@ -10,12 +10,9 @@ type LogEntry struct {
 }
 
 // Log is the in-memory representation of a node's replicated log.
-//
-// TODO(phase 6): this currently has no persistence and no compaction.
-// It will eventually need to:
-//   - persist entries via internal/wal before they're considered safe
-//   - support truncation from a given index (log conflict resolution)
-//   - support compaction once internal/raft snapshotting exists
+// Persistence to disk (see persist.go) and conflict-resolution
+// truncation (TruncateFrom, used from HandleAppendEntries) are both
+// implemented; log compaction/snapshots are not yet.
 type Log struct {
 	entries []LogEntry
 }
@@ -93,6 +90,22 @@ func (l *Log) AppendAll(entries []LogEntry) {
 		e.Index = len(l.entries)
 		l.entries = append(l.entries, e)
 	}
+}
+
+// RestoreLog builds a Log from previously persisted entries (which do
+// not include the index-0 sentinel - NewLog adds that back).
+func RestoreLog(entries []LogEntry) *Log {
+	l := NewLog()
+	l.entries = append(l.entries, entries...)
+	return l
+}
+
+// AllEntries returns a copy of every real entry in the log (excluding
+// the index-0 sentinel) - the exact shape RewriteLog persists to disk.
+func (l *Log) AllEntries() []LogEntry {
+	out := make([]LogEntry, l.LastIndex())
+	copy(out, l.entries[1:])
+	return out
 }
 
 // Slice returns a copy of the entries from index `from` through the

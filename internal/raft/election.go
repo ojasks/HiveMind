@@ -48,21 +48,20 @@ func (n *Node) HandleRequestVote(args RequestVoteArgs) RequestVoteReply {
 	logIsUpToDate := args.LastLogTerm > n.Log.LastTerm() ||
 		(args.LastLogTerm == n.Log.LastTerm() && args.LastLogIndex >= n.Log.LastIndex())
 
-	// TODO(phase 6.3): CurrentTerm and VotedFor must be persisted to
-	// disk (via internal/wal) BEFORE this function returns a granted
-	// vote. Until persistence is wired in, a crash immediately after
-	// granting a vote can make this node forget it voted and grant a
-	// second, conflicting vote in the same term after restart - a real
-	// safety violation, not a hypothetical one. Left deliberately
-	// unimplemented here so persistence can be added and tested as its
-	// own unit; do not ship this to a real cluster without it.
-
 	if (n.VotedFor == "" || n.VotedFor == args.CandidateID) && logIsUpToDate {
 		n.VotedFor = args.CandidateID
+		// 4. Persist BEFORE telling the candidate they got our vote -
+		// if we crash between granting and this write landing, we'd
+		// otherwise forget we voted and could grant a conflicting
+		// vote to someone else in this same term after restarting.
+		n.persistTermAndVoteLocked()
 		n.resetElectionTimer() // 5. we just heard from a legitimate candidate
 		return RequestVoteReply{Term: n.CurrentTerm, VoteGranted: true}
 	}
 
+	// Term may have changed in step 2 above even though we're not
+	// granting a vote here - persist unconditionally so that's never lost.
+	n.persistTermAndVoteLocked()
 	return RequestVoteReply{Term: n.CurrentTerm, VoteGranted: false}
 }
 
@@ -75,6 +74,10 @@ func (n *Node) StartElection() {
 	term := n.CurrentTerm
 	n.State = Candidate
 	n.VotedFor = n.ID
+	// Persist BEFORE sending a single RequestVote RPC: telling peers
+	// we're a candidate in this term IS the promise "I voted for
+	// myself here" - it must be durable before we make that promise.
+	n.persistTermAndVoteLocked()
 	lastLogIndex := n.Log.LastIndex()
 	lastLogTerm := n.Log.LastTerm()
 	peers := append([]PeerID{}, n.Peers...)
@@ -130,6 +133,7 @@ func (n *Node) StartElection() {
 				n.CurrentTerm = reply.Term
 				n.State = Follower
 				n.VotedFor = ""
+				n.persistTermAndVoteLocked()
 				n.mu.Unlock()
 				return
 			}

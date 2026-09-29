@@ -10,13 +10,14 @@
 //     DONE.
 //  3. Apply loop: committed entries applied to internal/kv on every
 //     node (apply.go). DONE.
-//  4. Persist currentTerm/votedFor/log via internal/wal before
-//     acknowledging votes/entries - see the TODO in election.go. This
-//     is the most common place naive Raft implementations violate
-//     safety, so don't skip it. NOT DONE YET.
+//  4. Persist CurrentTerm/VotedFor/Log via persist.go BEFORE a node
+//     acts on a change (replying to an RPC, or asking for votes as a
+//     new candidate). DONE.
 //  5. server.Server routes Put/Delete through Propose instead of
 //     writing to kv/wal directly (see the TODO in server.go). NOT
 //     DONE YET.
+//  6. Real RPC replacing transport.FakeNetwork, for actual
+//     multi-process/multi-machine operation. NOT DONE YET.
 package raft
 
 import (
@@ -40,11 +41,12 @@ type PeerID string
 
 // Node holds all Raft state for a single cluster member.
 //
-// TODO(phase 6.3 - persistence): currentTerm, votedFor, and the log must
-// be persisted (via internal/wal) BEFORE a node responds to a
-// RequestVote or AppendEntries RPC. If a node forgets who it voted for
-// after a crash, it can vote twice in the same term and violate Raft's
-// safety guarantees. Do not skip this when wiring persistence in.
+// CurrentTerm, VotedFor, and Log are persisted (see persist.go, and
+// the Persister field below) before this node acts on any change to
+// them - replying to an RPC, or asking peers for votes as a new
+// candidate. This is what stops a crash from making a node forget who
+// it voted for and casting a second, conflicting vote in the same term
+// after restarting.
 type Node struct {
 	mu sync.Mutex
 
@@ -59,7 +61,13 @@ type Node struct {
 	// loop still advances LastApplied, it just has nowhere to write.
 	Store *kv.Store
 
-	// --- Persistent state (must survive restarts once wal is wired in) ---
+	// Persister is where CurrentTerm/VotedFor/Log are made durable
+	// (see persist.go). Nil by default. If set, assign it and call
+	// Restore() BEFORE Start(), so any state from a previous run is
+	// loaded before elections/RPCs can begin.
+	Persister Persister
+
+	// --- Persistent state (see Persister above - durable across restarts) ---
 	CurrentTerm int
 	VotedFor    PeerID // "" if none
 	Log         *Log

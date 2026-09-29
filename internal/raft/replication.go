@@ -22,6 +22,7 @@ func (n *Node) Propose(command Command) (index int, term int, isLeader bool) {
 	}
 
 	entry := n.Log.Append(n.CurrentTerm, command)
+	n.persistNewEntryLocked(entry) // durable before we tell the caller we accepted it
 
 	// With no peers (single-node cluster) the leader alone is a
 	// majority, so commit right away. With peers this is a no-op until
@@ -74,6 +75,7 @@ func (n *Node) replicateTo(peer PeerID, term int) {
 		n.CurrentTerm = reply.Term
 		n.State = Follower
 		n.VotedFor = ""
+		n.persistTermAndVoteLocked()
 		return
 	}
 	if n.State != Leader || n.CurrentTerm != term {

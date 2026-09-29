@@ -41,6 +41,7 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 	if args.Term > n.CurrentTerm {
 		n.CurrentTerm = args.Term
 		n.VotedFor = ""
+		n.persistTermAndVoteLocked()
 	}
 
 	// A valid AppendEntries from a current-or-newer-term leader means
@@ -63,7 +64,10 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 	// 3 + 4. Walk the new entries. Skip ones we already have (same
 	// index and term - this happens with duplicate/retried RPCs). At
 	// the first conflict (same index, different term), delete that
-	// entry and everything after it, then append the rest.
+	// entry and everything after it, then append the rest. mutatedLog
+	// tracks whether any of this actually happened, so a pure
+	// heartbeat (no entries) never triggers a disk write.
+	mutatedLog := false
 	for i, e := range args.Entries {
 		idx := args.PrevLogIndex + 1 + i
 		if idx <= n.Log.LastIndex() {
@@ -73,7 +77,11 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 			n.Log.TruncateFrom(idx) // conflict: drop it and all that follow
 		}
 		n.Log.AppendAll(args.Entries[i:])
+		mutatedLog = true
 		break
+	}
+	if mutatedLog {
+		n.persistLogRewriteLocked()
 	}
 
 	// 5. Advance our commit index toward the leader's, but never past
