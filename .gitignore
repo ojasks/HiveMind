@@ -1,3 +1,4 @@
 hivemind-data/
 hivectl
 *.exe
+hivemind.wal

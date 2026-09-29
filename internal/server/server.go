@@ -173,7 +173,7 @@ func (s *Server) propose(cmd raft.Command) error {
 
 	deadline := time.Now().Add(commitWaitTimeout)
 	for time.Now().Before(deadline) {
-		if s.raft.Status().CommitIndex >= index {
+		if s.raft.Status().LastApplied >= index {
 			return nil
 		}
 		time.Sleep(5 * time.Millisecond)
