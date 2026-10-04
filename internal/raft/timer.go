@@ -29,11 +29,23 @@ const (
 // after setting n.Store if you want committed entries applied to a
 // kv.Store.
 func (n *Node) Start() {
+	// decodeArg (rpcwire.go) is what lets these SAME two closures serve
+	// requests whether args arrives as an already-typed Go value
+	// (transport.FakeNetwork, in-process) or as raw JSON bytes off a
+	// real connection (transport.RPCNetwork) - see its doc comment.
 	n.Network.Register(string(n.ID), "Raft.RequestVote", func(args any) (any, error) {
-		return n.HandleRequestVote(args.(RequestVoteArgs)), nil
+		a, err := decodeArg[RequestVoteArgs](args)
+		if err != nil {
+			return nil, err
+		}
+		return n.HandleRequestVote(a), nil
 	})
 	n.Network.Register(string(n.ID), "Raft.AppendEntries", func(args any) (any, error) {
-		return n.HandleAppendEntries(args.(AppendEntriesArgs)), nil
+		a, err := decodeArg[AppendEntriesArgs](args)
+		if err != nil {
+			return nil, err
+		}
+		return n.HandleAppendEntries(a), nil
 	})
 
 	go n.runElectionTimer()

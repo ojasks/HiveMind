@@ -113,7 +113,7 @@ func (n *Node) StartElection() {
 			if err != nil {
 				return // peer unreachable/dropped - it simply doesn't vote
 			}
-			if reply, ok := replyAny.(RequestVoteReply); ok {
+			if reply, err := decodeArg[RequestVoteReply](replyAny); err == nil {
 				replies <- reply
 			}
 		}()

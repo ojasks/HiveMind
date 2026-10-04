@@ -62,8 +62,8 @@ func (n *Node) replicateTo(peer PeerID, term int) {
 	if err != nil {
 		return // peer unreachable - the next tick retries
 	}
-	reply, ok := replyAny.(AppendEntriesReply)
-	if !ok {
+	reply, err := decodeArg[AppendEntriesReply](replyAny)
+	if err != nil {
 		return
 	}
 
